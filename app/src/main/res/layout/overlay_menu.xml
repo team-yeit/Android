@@ -1,0 +1,220 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="340dp"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/overlay_background"
+    android:padding="24dp"
+    android:elevation="16dp">
+
+    <!-- 헤더 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingBottom="12dp">
+        
+        <TextView
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:background="#FF9800"
+            android:layout_marginEnd="8dp" />
+            
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="🍜 메뉴 선택"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="#1A1A1A"
+            android:fontFamily="sans-serif-medium" />
+            
+    </LinearLayout>
+
+    <!-- 선택된 가게 표시 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#E8F5E8"
+        android:padding="12dp"
+        android:layout_marginBottom="16dp">
+        
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🏪"
+            android:textSize="16sp"
+            android:layout_marginEnd="8dp" />
+            
+        <TextView
+            android:id="@+id/tvSelectedStore"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="선택된 가게: "
+            android:textSize="14sp"
+            android:textColor="#2E7D32"
+            android:fontFamily="sans-serif-medium" />
+            
+    </LinearLayout>
+
+    <!-- 메인 콘텐츠 -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="어떤 메뉴를 주문하실까요?"
+        android:textSize="16sp"
+        android:textColor="#1976D2"
+        android:gravity="center"
+        android:fontFamily="sans-serif-medium"
+        android:paddingVertical="8dp" />
+
+    <!-- 음성 인식 영역 -->
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginVertical="20dp">
+
+        <!-- 펄스 원 (애니메이션용) -->
+        <View
+            android:id="@+id/pulseCircle1"
+            android:layout_width="120dp"
+            android:layout_height="120dp"
+            android:layout_centerInParent="true"
+            android:background="@drawable/pulse_circle"
+            android:visibility="gone" />
+            
+        <View
+            android:id="@+id/pulseCircle2"
+            android:layout_width="100dp"
+            android:layout_height="100dp"
+            android:layout_centerInParent="true"
+            android:background="@drawable/pulse_circle"
+            android:visibility="gone" />
+
+        <!-- 마이크 버튼 -->
+        <FrameLayout
+            android:id="@+id/micButtonFrame"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:layout_centerInParent="true"
+            android:background="@drawable/mic_button_selector"
+            android:clickable="true"
+            android:focusable="true">
+
+            <TextView
+                android:id="@+id/btnVoiceMenu"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:text="🎤"
+                android:textSize="28sp"
+                android:gravity="center"
+                android:clickable="false"
+                android:focusable="false" />
+
+        </FrameLayout>
+
+    </RelativeLayout>
+
+    <!-- 메뉴 결과 표시 -->
+    <TextView
+        android:id="@+id/tvMenuResult"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="마이크 버튼을 터치해서 메뉴 이름을 말씀해주세요"
+        android:textSize="14sp"
+        android:textColor="#666666"
+        android:gravity="center"
+        android:padding="16dp"
+        android:background="@drawable/status_background"
+        android:layout_marginBottom="16dp"
+        android:fontFamily="sans-serif"
+        android:lineSpacingExtra="2dp" />
+
+    <!-- 웨이브 인디케이터 -->
+    <LinearLayout
+        android:id="@+id/waveIndicator"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:layout_marginBottom="16dp"
+        android:visibility="gone">
+        
+        <View
+            android:id="@+id/wave1"
+            android:layout_width="4dp"
+            android:layout_height="20dp"
+            android:background="#FF9800"
+            android:layout_marginHorizontal="2dp" />
+            
+        <View
+            android:id="@+id/wave2"
+            android:layout_width="4dp"
+            android:layout_height="30dp"
+            android:background="#FF9800"
+            android:layout_marginHorizontal="2dp" />
+            
+        <View
+            android:id="@+id/wave3"
+            android:layout_width="4dp"
+            android:layout_height="40dp"
+            android:background="#FF9800"
+            android:layout_marginHorizontal="2dp" />
+            
+        <View
+            android:id="@+id/wave4"
+            android:layout_width="4dp"
+            android:layout_height="30dp"
+            android:background="#FF9800"
+            android:layout_marginHorizontal="2dp" />
+            
+        <View
+            android:id="@+id/wave5"
+            android:layout_width="4dp"
+            android:layout_height="20dp"
+            android:background="#FF9800"
+            android:layout_marginHorizontal="2dp" />
+            
+    </LinearLayout>
+
+    <!-- 하단 버튼들 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp">
+
+        <Button
+            android:id="@+id/btnBack"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:text="◀ 이전"
+            android:textSize="14sp"
+            android:textColor="#FFFFFF"
+            android:background="@drawable/button_primary"
+            android:fontFamily="sans-serif-medium"
+            android:elevation="2dp"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/btnClose"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:text="닫기"
+            android:textSize="14sp"
+            android:textColor="#FFFFFF"
+            android:background="@drawable/button_danger"
+            android:fontFamily="sans-serif-medium"
+            android:elevation="2dp"
+            android:layout_marginStart="8dp" />
+
+    </LinearLayout>
+
+</LinearLayout>

@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">배민 주문 도우미</string>
+    <string name="permission_required">권한이 필요합니다</string>
+    <string name="voice_permission_desc">음성 인식을 위해 마이크 권한이 필요합니다</string>
+    <string name="overlay_permission_desc">다른 앱 위에 표시하기 위해 오버레이 권한이 필요합니다</string>
+    <string name="accessibility_service_description">키보드 입력과 앱 제어를 위한 접근성 서비스입니다. 배달 앱에서 자동으로 텍스트 입력과 버튼 클릭을 수행할 수 있습니다.</string>
+</resources>
