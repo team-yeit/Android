@@ -22,15 +22,26 @@ import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.lifecycle.LifecycleService
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import team.yeet.yeetapplication.ocr.OcrApiService
+import team.yeet.yeetapplication.screenshot.ScreenshotManager
+import team.yeet.yeetapplication.voice.VoiceCommandProcessor
 import java.util.*
 
-class OverlayService : Service() {
+class OverlayService : LifecycleService() {
     
     private lateinit var windowManager: WindowManager
     private var overlayView: View? = null
     private var currentStep = STEP_STORE_SEARCH
     private var speechRecognizer: SpeechRecognizer? = null
     private var isListening = false
+    
+    // OCR, 스크린샷 및 음성 명령 서비스
+    private lateinit var ocrApiService: OcrApiService
+    private lateinit var screenshotManager: ScreenshotManager
+    private lateinit var voiceCommandProcessor: VoiceCommandProcessor
     
     private var pulseAnimator: AnimatorSet? = null
     private var waveAnimator: AnimatorSet? = null
@@ -62,6 +73,12 @@ class OverlayService : Service() {
     override fun onCreate() {
         super.onCreate()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        
+        // OCR, 스크린샷 및 음성 명령 서비스 초기화
+        ocrApiService = OcrApiService()
+        screenshotManager = ScreenshotManager(this)
+        voiceCommandProcessor = VoiceCommandProcessor(this)
+        
         initializeSpeechRecognizer()
         showStoreSearchOverlay()
     }
@@ -217,6 +234,15 @@ class OverlayService : Service() {
             animateClose()
         }
         
+        // 화면 캡처 버튼들
+        overlayView?.findViewById<TextView>(R.id.btnCaptureStore)?.setOnClickListener {
+            captureAndAnalyzeScreen("store")
+        }
+        
+        overlayView?.findViewById<TextView>(R.id.btnCaptureMenu)?.setOnClickListener {
+            captureAndAnalyzeScreen("food")
+        }
+        
         resetToInitialState()
     }
     
@@ -359,15 +385,270 @@ class OverlayService : Service() {
     }
     
     private fun handleSpeechResult(recognizedText: String) {
-        when (currentStep) {
-            STEP_STORE_SEARCH -> {
-                updateStatusUI("들은 내용: \"$recognizedText\"", "#2196F3")
-                searchStore(recognizedText)
+        updateStatusUI("들은 내용: \"$recognizedText\"", "#2196F3")
+        
+        // 스마트 음성 명령어 처리
+        lifecycleScope.launch {
+            try {
+                val voiceCommand = voiceCommandProcessor.processVoiceCommand(recognizedText)
+                
+                if (voiceCommand != null) {
+                    handleVoiceCommand(voiceCommand)
+                } else {
+                    // 기존 단계별 처리
+                    when (currentStep) {
+                        STEP_STORE_SEARCH -> refineAndSearchStore(recognizedText)
+                        STEP_MENU_SEARCH -> refineAndSearchMenu(recognizedText)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("OverlayService", "Voice command processing error", e)
+                // 오류 시 기존 방식으로 fallback
+                when (currentStep) {
+                    STEP_STORE_SEARCH -> refineAndSearchStore(recognizedText)
+                    STEP_MENU_SEARCH -> refineAndSearchMenu(recognizedText)
+                }
             }
-            STEP_MENU_SEARCH -> {
-                updateStatusUI("들은 내용: \"$recognizedText\"", "#2196F3")
-                searchMenu(recognizedText)
+        }
+    }
+    
+    // 음성 명령어 실행
+    private fun handleVoiceCommand(command: VoiceCommandProcessor.VoiceCommand) {
+        val responseMessage = voiceCommandProcessor.generateCommandResponse(command)
+        updateStatusUI("🤖 $responseMessage", "#4CAF50")
+        
+        when (command.command) {
+            "OPEN_BAEMIN" -> {
+                Handler(Looper.getMainLooper()).postDelayed({
+                    openBaeminApp()
+                }, 1000)
             }
+            
+            "ANALYZE_SCREEN" -> {
+                Handler(Looper.getMainLooper()).postDelayed({
+                    captureAndAnalyzeScreen("all")
+                }, 1000)
+            }
+            
+            "FIND_STORE" -> {
+                Handler(Looper.getMainLooper()).postDelayed({
+                    captureAndAnalyzeScreen("store")
+                }, 1000)
+            }
+            
+            "FIND_MENU" -> {
+                Handler(Looper.getMainLooper()).postDelayed({
+                    captureAndAnalyzeScreen("food")
+                }, 1000)
+            }
+            
+            "SEARCH_STORE" -> {
+                val storeName = command.parameters["store_name"] ?: ""
+                Handler(Looper.getMainLooper()).postDelayed({
+                    searchStore(storeName)
+                }, 1000)
+            }
+            
+            "SEARCH_MENU" -> {
+                val menuName = command.parameters["menu_name"] ?: ""
+                Handler(Looper.getMainLooper()).postDelayed({
+                    searchMenu(menuName)
+                }, 1000)
+            }
+            
+            "PLACE_ORDER" -> {
+                Handler(Looper.getMainLooper()).postDelayed({
+                    simulateOrderPlacement()
+                }, 1000)
+            }
+            
+            "SHOW_HELP" -> {
+                updateStatusUI(responseMessage, "#2196F3")
+                Handler(Looper.getMainLooper()).postDelayed({
+                    resetToInitialState()
+                }, 5000)
+            }
+            
+            else -> {
+                // 기본 처리
+                Handler(Looper.getMainLooper()).postDelayed({
+                    resetToInitialState()
+                }, 2000)
+            }
+        }
+    }
+    
+    // 배달의민족 앱 실행
+    private fun openBaeminApp() {
+        try {
+            val intent = packageManager.getLaunchIntentForPackage("com.sampleapp")
+            if (intent != null) {
+                startActivity(intent)
+                updateStatusUI("✅ 배달의민족이 실행되었습니다\n화면을 확인해주세요", "#4CAF50")
+            } else {
+                updateStatusUI("❌ 배달의민족 앱이 설치되어 있지 않습니다", "#FF5722")
+            }
+        } catch (e: Exception) {
+            updateStatusUI("❌ 앱 실행에 실패했습니다", "#FF5722")
+        }
+        
+        Handler(Looper.getMainLooper()).postDelayed({
+            resetToInitialState()
+        }, 3000)
+    }
+    
+    // 주문 진행 시뮬레이션
+    private fun simulateOrderPlacement() {
+        updateStatusUI("🛒 주문을 진행합니다...", "#FF9800")
+        
+        Handler(Looper.getMainLooper()).postDelayed({
+            updateStatusUI("✅ 주문이 완료되었습니다!\n감사합니다", "#4CAF50")
+            
+            Handler(Looper.getMainLooper()).postDelayed({
+                resetToInitialState()
+            }, 3000)
+        }, 2000)
+    }
+    
+    private fun refineAndSearchStore(rawText: String) {
+        lifecycleScope.launch {
+            try {
+                updateStatusUI("🔄 음성을 분석 중입니다...", "#FF9800")
+                
+                // OCR API로 가게이름 정제
+                ocrApiService.refineStoreName(rawText).fold(
+                    onSuccess = { refinedStoreName ->
+                        if (refinedStoreName.isNotBlank()) {
+                            updateStatusUI("정제된 가게명: \"$refinedStoreName\"", "#2196F3")
+                            searchStore(refinedStoreName)
+                        } else {
+                            // 정제 결과가 없으면 원본으로 검색
+                            updateStatusUI("원본 텍스트로 검색: \"$rawText\"", "#FF9800")
+                            searchStore(rawText)
+                        }
+                    },
+                    onFailure = { error ->
+                        android.util.Log.w("OverlayService", "OCR refine failed: ${error.message}")
+                        // OCR API 실패 시 원본으로 검색
+                        updateStatusUI("원본 텍스트로 검색: \"$rawText\"", "#FF9800")
+                        searchStore(rawText)
+                    }
+                )
+            } catch (e: Exception) {
+                android.util.Log.e("OverlayService", "Speech refine error", e)
+                // 예외 발생 시 원본으로 검색
+                updateStatusUI("원본 텍스트로 검색: \"$rawText\"", "#FF9800")
+                searchStore(rawText)
+            }
+        }
+    }
+    
+    private fun refineAndSearchMenu(rawText: String) {
+        lifecycleScope.launch {
+            try {
+                updateStatusUI("🔄 음성을 분석 중입니다...", "#FF9800")
+                
+                // OCR API로 음식이름 정제
+                ocrApiService.refineFoodName(rawText).fold(
+                    onSuccess = { refinedFoodName ->
+                        if (refinedFoodName.isNotBlank()) {
+                            updateStatusUI("정제된 메뉴명: \"$refinedFoodName\"", "#2196F3")
+                            searchMenu(refinedFoodName)
+                        } else {
+                            // 정제 결과가 없으면 원본으로 검색
+                            updateStatusUI("원본 텍스트로 검색: \"$rawText\"", "#FF9800")
+                            searchMenu(rawText)
+                        }
+                    },
+                    onFailure = { error ->
+                        android.util.Log.w("OverlayService", "OCR refine failed: ${error.message}")
+                        // OCR API 실패 시 원본으로 검색
+                        updateStatusUI("원본 텍스트로 검색: \"$rawText\"", "#FF9800")
+                        searchMenu(rawText)
+                    }
+                )
+            } catch (e: Exception) {
+                android.util.Log.e("OverlayService", "Speech refine error", e)
+                // 예외 발생 시 원본으로 검색
+                updateStatusUI("원본 텍스트로 검색: \"$rawText\"", "#FF9800")
+                searchMenu(rawText)
+            }
+        }
+    }
+    
+    // 화면 캡처 및 분석
+    private fun captureAndAnalyzeScreen(filterType: String) {
+        if (!screenshotManager.hasScreenshotPermission()) {
+            updateStatusUI("⚠️ 화면 캡처 권한이 필요합니다\n설정에서 권한을 허용해주세요", "#FF5722")
+            
+            // 권한 요청 (데모용으로 간단히 구현)
+            Handler(Looper.getMainLooper()).postDelayed({
+                updateStatusUI("🔄 권한 요청을 진행합니다...", "#FF9800")
+                
+                // 실제로는 권한 요청 액티비티를 실행해야 함
+                // 데모용으로 5초 후 성공 상태로 변경
+                Handler(Looper.getMainLooper()).postDelayed({
+                    performScreenCapture(filterType)
+                }, 3000)
+            }, 2000)
+            return
+        }
+        
+        performScreenCapture(filterType)
+    }
+    
+    private fun performScreenCapture(filterType: String) {
+        lifecycleScope.launch {
+            try {
+                updateStatusUI("📱 화면을 캡처하고 있습니다...", "#2196F3")
+                
+                // 데모용 더미 데이터 (실제 스크린샷 대신)
+                val demoResults = generateDemoScreenResults(filterType)
+                
+                if (demoResults.isNotEmpty()) {
+                    val resultText = when (filterType) {
+                        "store" -> {
+                            selectedStore = demoResults.first()
+                            "✅ 화면에서 '${demoResults.first()}' 가게를 찾았습니다!\n잠시 후 메뉴 선택으로 넘어갑니다"
+                        }
+                        "food" -> {
+                            "✅ 화면에서 메뉴를 찾았습니다:\n${demoResults.take(3).joinToString(", ")}"
+                        }
+                        else -> {
+                            "✅ 화면 분석 완료:\n${demoResults.take(5).joinToString(", ")}"
+                        }
+                    }
+                    
+                    updateStatusUI(resultText, "#4CAF50")
+                    
+                    if (filterType == "store" && demoResults.isNotEmpty()) {
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            showMenuSearchOverlay()
+                        }, 3000)
+                    }
+                } else {
+                    updateStatusUI("❌ 화면에서 ${if(filterType == "store") "가게" else "메뉴"}를 찾을 수 없었습니다\n다른 방법을 시도해보세요", "#FF5722")
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        resetToInitialState()
+                    }, 3000)
+                }
+                
+            } catch (e: Exception) {
+                Log.e("OverlayService", "Screen capture error", e)
+                updateStatusUI("❌ 화면 분석 중 오류가 발생했습니다\n음성 인식을 사용해보세요", "#FF5722")
+                Handler(Looper.getMainLooper()).postDelayed({
+                    resetToInitialState()
+                }, 3000)
+            }
+        }
+    }
+    
+    // 데모용 화면 분석 결과 생성
+    private fun generateDemoScreenResults(filterType: String): List<String> {
+        return when (filterType) {
+            "store" -> listOf("맥도날드", "버거킹", "피자헛").shuffled().take(1)
+            "food" -> listOf("빅맥세트", "치킨버거", "감자튀김", "콜라", "맥너겟", "와퍼", "치킨킹").shuffled().take(4)
+            else -> listOf("맥도날드", "빅맥세트", "8,500원", "주문하기", "장바구니").shuffled().take(5)
         }
     }
     

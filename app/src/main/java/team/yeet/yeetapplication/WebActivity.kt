@@ -25,12 +25,20 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.view.KeyEvent
 import android.content.ClipData
 import android.content.ClipboardManager
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import team.yeet.yeetapplication.ocr.OcrApiService
+import team.yeet.yeetapplication.camera.CameraManager
 
 class WebActivity : ComponentActivity() {
 
     private lateinit var webView: WebView
     private var currentPage = "main"
     private var pendingPermissionCallback: String? = null
+    
+    // OCR 및 카메라 관련
+    private lateinit var ocrApiService: OcrApiService
+    private lateinit var cameraManager: CameraManager
 
     // 단일 권한 요청
     private val singlePermissionLauncher = registerForActivityResult(
@@ -89,6 +97,10 @@ class WebActivity : ComponentActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // OCR 및 카메라 서비스 초기화
+        ocrApiService = OcrApiService()
+        cameraManager = CameraManager(this)
 
         webView = WebView(this).apply {
             settings.javaScriptEnabled = true
@@ -639,6 +651,160 @@ class WebActivity : ComponentActivity() {
         @JavascriptInterface
         fun getDeviceInfo(): String {
             return "${android.os.Build.MANUFACTURER},${android.os.Build.MODEL},${android.os.Build.VERSION.RELEASE}"
+        }
+        
+        // ========== OCR 및 카메라 API ==========
+        @JavascriptInterface
+        fun hasCameraPermission(): Boolean {
+            return cameraManager.hasCameraPermission()
+        }
+        
+        @JavascriptInterface
+        fun takePhotoAndAnalyze(filterType: String) {
+            lifecycleScope.launch {
+                try {
+                    if (!cameraManager.hasCameraPermission()) {
+                        runOnUiThread { 
+                            webView.evaluateJavascript("onCameraError('카메라 권한이 필요합니다');", null)
+                        }
+                        return@launch
+                    }
+                    
+                    // 카메라 초기화
+                    cameraManager.initializeCamera(this@WebActivity).fold(
+                        onSuccess = {
+                            // 사진 촬영
+                            cameraManager.takePhotoToBitmap().fold(
+                                onSuccess = { bitmap ->
+                                    // OCR 분석
+                                    val resizedBitmap = cameraManager.resizeBitmapForOcr(bitmap)
+                                    analyzeImageWithOcr(resizedBitmap, filterType)
+                                },
+                                onFailure = { error ->
+                                    runOnUiThread { 
+                                        webView.evaluateJavascript("onCameraError('사진 촬영 실패: ${error.message}');", null)
+                                    }
+                                }
+                            )
+                        },
+                        onFailure = { error ->
+                            runOnUiThread { 
+                                webView.evaluateJavascript("onCameraError('카메라 초기화 실패: ${error.message}');", null)
+                            }
+                        }
+                    )
+                } catch (e: Exception) {
+                    runOnUiThread { 
+                        webView.evaluateJavascript("onCameraError('카메라 오류: ${e.message}');", null)
+                    }
+                }
+            }
+        }
+        
+        private suspend fun analyzeImageWithOcr(bitmap: android.graphics.Bitmap, filterType: String) {
+            try {
+                val filter = when (filterType.lowercase()) {
+                    "store" -> "store"
+                    "food" -> "food"
+                    else -> null
+                }
+                
+                ocrApiService.extractTextFromImage(bitmap, filter).fold(
+                    onSuccess = { response ->
+                        if (response.success) {
+                            val results = response.textList.map { 
+                                mapOf(
+                                    "text" to it.text,
+                                    "x" to it.x,
+                                    "y" to it.y
+                                )
+                            }
+                            val jsonResults = com.google.gson.Gson().toJson(results)
+                            
+                            runOnUiThread { 
+                                webView.evaluateJavascript("onOcrResults('$filterType', $jsonResults);", null)
+                            }
+                        } else {
+                            runOnUiThread { 
+                                webView.evaluateJavascript("onOcrError('OCR 분석 실패: ${response.message ?: "알 수 없는 오류"}');", null)
+                            }
+                        }
+                    },
+                    onFailure = { error ->
+                        runOnUiThread { 
+                            webView.evaluateJavascript("onOcrError('OCR API 오류: ${error.message}');", null)
+                        }
+                    }
+                )
+            } catch (e: Exception) {
+                runOnUiThread { 
+                    webView.evaluateJavascript("onOcrError('OCR 분석 중 오류: ${e.message}');", null)
+                }
+            }
+        }
+        
+        @JavascriptInterface
+        fun refineTextWithOcr(text: String, extractType: String) {
+            lifecycleScope.launch {
+                try {
+                    ocrApiService.extractFromText(text, extractType).fold(
+                        onSuccess = { result ->
+                            runOnUiThread { 
+                                webView.evaluateJavascript("onTextRefined('$extractType', '$result');", null)
+                            }
+                        },
+                        onFailure = { error ->
+                            runOnUiThread { 
+                                webView.evaluateJavascript("onTextRefineError('텍스트 정제 실패: ${error.message}');", null)
+                            }
+                        }
+                    )
+                } catch (e: Exception) {
+                    runOnUiThread { 
+                        webView.evaluateJavascript("onTextRefineError('텍스트 정제 중 오류: ${e.message}');", null)
+                    }
+                }
+            }
+        }
+        
+        @JavascriptInterface
+        fun checkOcrServiceHealth() {
+            lifecycleScope.launch {
+                try {
+                    ocrApiService.checkHealth().fold(
+                        onSuccess = { health ->
+                            runOnUiThread { 
+                                webView.evaluateJavascript("onOcrHealthCheck(${health.ocr}, '${health.status}');", null)
+                            }
+                        },
+                        onFailure = { error ->
+                            runOnUiThread { 
+                                webView.evaluateJavascript("onOcrHealthCheck(false, 'OCR 서비스 연결 실패: ${error.message}');", null)
+                            }
+                        }
+                    )
+                } catch (e: Exception) {
+                    runOnUiThread { 
+                        webView.evaluateJavascript("onOcrHealthCheck(false, 'OCR 상태 확인 중 오류: ${e.message}');", null)
+                    }
+                }
+            }
+        }
+        
+        // 편의 메서드들
+        @JavascriptInterface
+        fun scanStoreSign() {
+            takePhotoAndAnalyze("store")
+        }
+        
+        @JavascriptInterface
+        fun scanMenu() {
+            takePhotoAndAnalyze("food")
+        }
+        
+        @JavascriptInterface
+        fun scanAll() {
+            takePhotoAndAnalyze("all")
         }
     }
 

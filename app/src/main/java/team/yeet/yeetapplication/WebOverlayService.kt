@@ -31,10 +31,16 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.LifecycleService
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import team.yeet.yeetapplication.ocr.OcrApiService
+import team.yeet.yeetapplication.camera.CameraManager
+import team.yeet.yeetapplication.screenshot.ScreenshotManager
 import java.io.ByteArrayOutputStream
 import java.util.*
 
-class WebOverlayService : Service() {
+class WebOverlayService : LifecycleService() {
     
     private lateinit var windowManager: WindowManager
     private var webView: WebView? = null
@@ -42,6 +48,11 @@ class WebOverlayService : Service() {
     private var isListening = false
     private var mediaProjection: MediaProjection? = null
     private var isTouchable = false // 터치 모드 상태
+    
+    // OCR, 카메라 및 스크린샷 관련
+    private lateinit var ocrApiService: OcrApiService
+    private lateinit var cameraManager: CameraManager
+    private lateinit var screenshotManager: ScreenshotManager
     
     private val hardcodedStores = mapOf(
         "맥도날드" to listOf("빅맥", "치킨버거", "감자튀김", "콜라", "맥너겟"),
@@ -58,6 +69,12 @@ class WebOverlayService : Service() {
     override fun onCreate() {
         super.onCreate()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        
+        // OCR, 카메라 및 스크린샷 서비스 초기화
+        ocrApiService = OcrApiService()
+        cameraManager = CameraManager(this)
+        screenshotManager = ScreenshotManager(this)
+        
         initializeSpeechRecognizer()
         
         // 기존 앱들 모두 백그라운드로 보내기 (홈으로 이동)
@@ -676,6 +693,304 @@ class WebOverlayService : Service() {
             android.util.Log.d("WebOverlay", message)
         }
         
+        // ========== OCR 및 카메라 API ==========
+        @JavascriptInterface
+        fun hasCameraPermission(): Boolean {
+            return cameraManager.hasCameraPermission()
+        }
+        
+        @JavascriptInterface
+        fun takePhotoAndAnalyze(filterType: String) {
+            lifecycleScope.launch {
+                try {
+                    if (!cameraManager.hasCameraPermission()) {
+                        runOnUIThread { 
+                            webView?.evaluateJavascript("onCameraError('카메라 권한이 필요합니다');", null)
+                        }
+                        return@launch
+                    }
+                    
+                    // 카메라 초기화
+                    cameraManager.initializeCamera(this@WebOverlayService).fold(
+                        onSuccess = {
+                            // 사진 촬영
+                            cameraManager.takePhotoToBitmap().fold(
+                                onSuccess = { bitmap ->
+                                    // OCR 분석
+                                    val resizedBitmap = cameraManager.resizeBitmapForOcr(bitmap)
+                                    analyzeImageWithOcr(resizedBitmap, filterType)
+                                },
+                                onFailure = { error ->
+                                    runOnUIThread { 
+                                        webView?.evaluateJavascript("onCameraError('사진 촬영 실패: ${error.message}');", null)
+                                    }
+                                }
+                            )
+                        },
+                        onFailure = { error ->
+                            runOnUIThread { 
+                                webView?.evaluateJavascript("onCameraError('카메라 초기화 실패: ${error.message}');", null)
+                            }
+                        }
+                    )
+                } catch (e: Exception) {
+                    runOnUIThread { 
+                        webView?.evaluateJavascript("onCameraError('카메라 오류: ${e.message}');", null)
+                    }
+                }
+            }
+        }
+        
+        private suspend fun analyzeImageWithOcr(bitmap: Bitmap, filterType: String) {
+            try {
+                val filter = when (filterType.lowercase()) {
+                    "store" -> "store"
+                    "food" -> "food"
+                    else -> null
+                }
+                
+                ocrApiService.extractTextFromImage(bitmap, filter).fold(
+                    onSuccess = { response ->
+                        if (response.success) {
+                            val results = response.textList.map { 
+                                mapOf(
+                                    "text" to it.text,
+                                    "x" to it.x,
+                                    "y" to it.y
+                                )
+                            }
+                            val jsonResults = com.google.gson.Gson().toJson(results)
+                            
+                            runOnUIThread { 
+                                webView?.evaluateJavascript("onOcrResults('$filterType', $jsonResults);", null)
+                            }
+                        } else {
+                            runOnUIThread { 
+                                webView?.evaluateJavascript("onOcrError('OCR 분석 실패: ${response.message ?: "알 수 없는 오류"}');", null)
+                            }
+                        }
+                    },
+                    onFailure = { error ->
+                        runOnUIThread { 
+                            webView?.evaluateJavascript("onOcrError('OCR API 오류: ${error.message}');", null)
+                        }
+                    }
+                )
+            } catch (e: Exception) {
+                runOnUIThread { 
+                    webView?.evaluateJavascript("onOcrError('OCR 분석 중 오류: ${e.message}');", null)
+                }
+            }
+        }
+        
+        @JavascriptInterface
+        fun refineTextWithOcr(text: String, extractType: String) {
+            lifecycleScope.launch {
+                try {
+                    ocrApiService.extractFromText(text, extractType).fold(
+                        onSuccess = { result ->
+                            runOnUIThread { 
+                                webView?.evaluateJavascript("onTextRefined('$extractType', '$result');", null)
+                            }
+                        },
+                        onFailure = { error ->
+                            runOnUIThread { 
+                                webView?.evaluateJavascript("onTextRefineError('텍스트 정제 실패: ${error.message}');", null)
+                            }
+                        }
+                    )
+                } catch (e: Exception) {
+                    runOnUIThread { 
+                        webView?.evaluateJavascript("onTextRefineError('텍스트 정제 중 오류: ${e.message}');", null)
+                    }
+                }
+            }
+        }
+        
+        @JavascriptInterface
+        fun checkOcrServiceHealth() {
+            lifecycleScope.launch {
+                try {
+                    ocrApiService.checkHealth().fold(
+                        onSuccess = { health ->
+                            runOnUIThread { 
+                                webView?.evaluateJavascript("onOcrHealthCheck(${health.ocr}, '${health.status}');", null)
+                            }
+                        },
+                        onFailure = { error ->
+                            runOnUIThread { 
+                                webView?.evaluateJavascript("onOcrHealthCheck(false, 'OCR 서비스 연결 실패: ${error.message}');", null)
+                            }
+                        }
+                    )
+                } catch (e: Exception) {
+                    runOnUIThread { 
+                        webView?.evaluateJavascript("onOcrHealthCheck(false, 'OCR 상태 확인 중 오류: ${e.message}');", null)
+                    }
+                }
+            }
+        }
+        
+        // 편의 메서드들
+        @JavascriptInterface
+        fun scanStoreSign() {
+            takePhotoAndAnalyze("store")
+        }
+        
+        @JavascriptInterface
+        fun scanMenu() {
+            takePhotoAndAnalyze("food")
+        }
+        
+        @JavascriptInterface
+        fun scanAll() {
+            takePhotoAndAnalyze("all")
+        }
+        
+        // ========== 배달앱 화면 스크린샷 분석 API ==========
+        @JavascriptInterface
+        fun hasScreenshotPermission(): Boolean {
+            return screenshotManager.hasScreenshotPermission()
+        }
+        
+        @JavascriptInterface
+        fun requestScreenshotPermission() {
+            try {
+                val intent = screenshotManager.createScreenCaptureIntent()
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(intent)
+                showToast("화면 캡처 권한을 허용해주세요")
+            } catch (e: Exception) {
+                runOnUIThread { 
+                    webView?.evaluateJavascript("onScreenshotError('권한 요청 실패: ${e.message}');", null)
+                }
+            }
+        }
+        
+        @JavascriptInterface
+        fun initializeScreenCapture(resultCode: Int, data: String) {
+            try {
+                // Intent 데이터 복원 로직 필요
+                // 실제 구현에서는 Activity Result API 사용
+                showToast("화면 캡처가 활성화되었습니다")
+                runOnUIThread { 
+                    webView?.evaluateJavascript("onScreenCaptureReady();", null)
+                }
+            } catch (e: Exception) {
+                runOnUIThread { 
+                    webView?.evaluateJavascript("onScreenshotError('초기화 실패: ${e.message}');", null)
+                }
+            }
+        }
+        
+        @JavascriptInterface
+        fun captureDeliveryAppScreen(filterType: String) {
+            if (!screenshotManager.hasScreenshotPermission()) {
+                runOnUIThread { 
+                    webView?.evaluateJavascript("onScreenshotError('화면 캡처 권한이 필요합니다');", null)
+                }
+                return
+            }
+            
+            lifecycleScope.launch {
+                try {
+                    runOnUIThread { 
+                        webView?.evaluateJavascript("onScreenshotStarted();", null)
+                    }
+                    
+                    // 스크린샷 촬영 및 OCR 분석
+                    screenshotManager.captureAndAnalyze(ocrApiService, filterType).fold(
+                        onSuccess = { response ->
+                            if (response.success) {
+                                val results = response.textList.map { 
+                                    mapOf(
+                                        "text" to it.text,
+                                        "x" to it.x,
+                                        "y" to it.y
+                                    )
+                                }
+                                val jsonResults = com.google.gson.Gson().toJson(results)
+                                
+                                runOnUIThread { 
+                                    webView?.evaluateJavascript("onDeliveryAppAnalyzed('$filterType', $jsonResults);", null)
+                                }
+                            } else {
+                                runOnUIThread { 
+                                    webView?.evaluateJavascript("onScreenshotError('화면 분석 실패: ${response.message ?: "알 수 없는 오류"}');", null)
+                                }
+                            }
+                        },
+                        onFailure = { error ->
+                            runOnUIThread { 
+                                webView?.evaluateJavascript("onScreenshotError('스크린샷 실패: ${error.message}');", null)
+                            }
+                        }
+                    )
+                } catch (e: Exception) {
+                    runOnUIThread { 
+                        webView?.evaluateJavascript("onScreenshotError('캡처 중 오류: ${e.message}');", null)
+                    }
+                }
+            }
+        }
+        
+        // 편의 메서드들 - 배달앱 화면 분석
+        @JavascriptInterface
+        fun findStoresOnScreen() {
+            captureDeliveryAppScreen("store")
+        }
+        
+        @JavascriptInterface
+        fun findMenusOnScreen() {
+            captureDeliveryAppScreen("food")
+        }
+        
+        @JavascriptInterface
+        fun analyzeEntireScreen() {
+            captureDeliveryAppScreen("all")
+        }
+        
+        @JavascriptInterface
+        fun captureAndSave() {
+            if (!screenshotManager.hasScreenshotPermission()) {
+                runOnUIThread { 
+                    webView?.evaluateJavascript("onScreenshotError('화면 캡처 권한이 필요합니다');", null)
+                }
+                return
+            }
+            
+            lifecycleScope.launch {
+                try {
+                    screenshotManager.takeScreenshot().fold(
+                        onSuccess = { bitmap ->
+                            val filename = "delivery_app_${System.currentTimeMillis()}"
+                            screenshotManager.saveScreenshotToFile(bitmap, filename).fold(
+                                onSuccess = { filepath ->
+                                    runOnUIThread { 
+                                        webView?.evaluateJavascript("onScreenshotSaved('$filepath');", null)
+                                    }
+                                },
+                                onFailure = { error ->
+                                    runOnUIThread { 
+                                        webView?.evaluateJavascript("onScreenshotError('저장 실패: ${error.message}');", null)
+                                    }
+                                }
+                            )
+                        },
+                        onFailure = { error ->
+                            runOnUIThread { 
+                                webView?.evaluateJavascript("onScreenshotError('캡처 실패: ${error.message}');", null)
+                            }
+                        }
+                    )
+                } catch (e: Exception) {
+                    runOnUIThread { 
+                        webView?.evaluateJavascript("onScreenshotError('저장 중 오류: ${e.message}');", null)
+                    }
+                }
+            }
+        }
+
         @JavascriptInterface
         fun getApiList(): String {
             return """
@@ -690,6 +1005,10 @@ class WebOverlayService : Service() {
                 [알림] showToast, vibrate
                 [파일시스템] saveFile, loadFile, deleteFile
                 [앱제어] openApp, isAppInstalled, getInstalledApps
+                [OCR카메라] hasCameraPermission, takePhotoAndAnalyze, scanStoreSign, scanMenu, scanAll
+                [OCR텍스트] refineTextWithOcr, checkOcrServiceHealth
+                [화면캡처] hasScreenshotPermission, requestScreenshotPermission, captureDeliveryAppScreen
+                [배달앱분석] findStoresOnScreen, findMenusOnScreen, analyzeEntireScreen, captureAndSave
                 [기본] closeOverlay, log, getApiList
             """.trimIndent()
         }
@@ -698,6 +1017,8 @@ class WebOverlayService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         speechRecognizer?.destroy()
+        cameraManager.release()
+        screenshotManager.release()
         webView?.let {
             windowManager.removeView(it)
             it.destroy()
