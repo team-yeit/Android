@@ -4,7 +4,9 @@ import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.app.Service
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.PixelFormat
 import android.os.Bundle
 import android.os.Handler
@@ -13,6 +15,7 @@ import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.util.Log
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -83,7 +86,7 @@ class OverlayService : LifecycleService() {
         showStoreSearchOverlay()
     }
     
-    override fun onBind(intent: Intent?): IBinder? = null
+    // onBind is already implemented by LifecycleService
     
     private fun initializeSpeechRecognizer() {
         speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
@@ -481,8 +484,9 @@ class OverlayService : LifecycleService() {
     // 배달의민족 앱 실행
     private fun openBaeminApp() {
         try {
-            val intent = packageManager.getLaunchIntentForPackage("com.sampleapp")
+            val intent = this.packageManager.getLaunchIntentForPackage("com.sampleapp")
             if (intent != null) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 startActivity(intent)
                 updateStatusUI("✅ 배달의민족이 실행되었습니다\n화면을 확인해주세요", "#4CAF50")
             } else {

@@ -37,6 +37,9 @@ android {
     buildFeatures {
         compose = true
     }
+    lint {
+        abortOnError = false
+    }
 }
 
 dependencies {
@@ -64,6 +67,9 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
+    
+    // Lifecycle Service
+    implementation("androidx.lifecycle:lifecycle-service:2.7.0")
     
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

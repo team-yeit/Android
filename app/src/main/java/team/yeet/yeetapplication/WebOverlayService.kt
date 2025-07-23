@@ -5,6 +5,7 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.annotation.SuppressLint
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -22,6 +23,7 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Base64
 import android.util.DisplayMetrics
+import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -83,7 +85,7 @@ class WebOverlayService : LifecycleService() {
         createWebViewOverlay()
     }
     
-    override fun onBind(intent: Intent?): IBinder? = null
+    // onBind is already implemented by LifecycleService
     
     @SuppressLint("SetJavaScriptEnabled")
     private fun createWebViewOverlay() {

@@ -11,6 +11,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.accessibilityservice.GestureDescription
 import android.graphics.Path
 import android.util.Log
+import androidx.core.content.ContextCompat
 
 class KeyboardInputService : AccessibilityService() {
 
@@ -58,7 +59,7 @@ class KeyboardInputService : AccessibilityService() {
             addAction("team.yeet.yeetapplication.FIND_AND_CLICK")
             addAction("team.yeet.yeetapplication.TYPE_IN_SEARCH")
         }
-        registerReceiver(broadcastReceiver, filter)
+        ContextCompat.registerReceiver(this, broadcastReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
 
         Log.d(TAG, "KeyboardInputService created")
     }

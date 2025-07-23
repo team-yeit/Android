@@ -7,8 +7,10 @@ import com.google.gson.annotations.SerializedName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.*
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.logging.HttpLoggingInterceptor
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 
@@ -84,7 +86,7 @@ class OcrApiService {
                 .build()
             
             // URL 구성
-            val urlBuilder = HttpUrl.parse("$baseUrl/image/extract")?.newBuilder()
+            val urlBuilder = "$baseUrl/image/extract".toHttpUrlOrNull()?.newBuilder()
             filterType?.let {
                 urlBuilder?.addQueryParameter("type", it)
             }
@@ -129,7 +131,7 @@ class OcrApiService {
             val requestBody = gson.toJson(TextExtractRequest(text))
                 .toRequestBody("application/json".toMediaTypeOrNull())
             
-            val url = HttpUrl.parse("$baseUrl/text/extract")?.newBuilder()
+            val url = "$baseUrl/text/extract".toHttpUrlOrNull()?.newBuilder()
                 ?.addQueryParameter("type", extractType)
                 ?.build()
             
